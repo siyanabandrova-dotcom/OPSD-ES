@@ -7,7 +7,8 @@
 set -uo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV="${VENV:-$SRC/.venv}"
+REPO="$(cd "$SRC/.." && pwd)"
+VENV="${VENV:-$REPO/.venv}"
 LOCAL_RUN="${LOCAL_RUN:-$SRC/runs/eggroll-baseline-tmoff2048}"
 PERSIST_RUN="${PERSIST_RUN:-$LOCAL_RUN}"
 EVAL_STEPS="${EVAL_STEPS:-20 40 60 80 100}"

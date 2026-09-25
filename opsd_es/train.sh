@@ -10,8 +10,9 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$ROOT/.." && pwd)"
 SRC="${SRC:-$ROOT}"
-VENV="${VENV:-$ROOT/.venv}"
+VENV="${VENV:-$REPO/.venv}"
 EVAL_VENV="${EVAL_VENV:-$VENV}"
 MODEL="${MODEL:-Qwen/Qwen3-1.7B}"
 RUN_NAME="${RUN_NAME:-opsd-es-pairs512-$(date +%Y%m%d-%H%M%S)}"

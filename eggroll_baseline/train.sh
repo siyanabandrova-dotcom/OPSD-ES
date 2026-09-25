@@ -4,7 +4,8 @@
 set -uo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV="${VENV:-$SRC/.venv}"
+REPO="$(cd "$SRC/.." && pwd)"
+VENV="${VENV:-$REPO/.venv}"
 EVAL_VENV="${EVAL_VENV:-$VENV}"
 MODEL="${MODEL:-Qwen/Qwen3-1.7B}"
 RUN_NAME="${RUN_NAME:-eggroll-baseline-tmoff2048-$(date +%Y%m%d-%H%M%S)}"

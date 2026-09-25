@@ -13,7 +13,7 @@ python -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-Each method looks for `.venv` in its own directory. Point `VENV` at another environment if you already have one. `EVAL_VENV` defaults to `VENV`.
+The scripts look for `.venv` in the repository root. Point `VENV` at another environment if you already have one. `EVAL_VENV` defaults to `VENV`.
 
 Override the model with `MODEL` (default `Qwen/Qwen3-1.7B`). Runs are written under that method's `runs/` directory. Override the output with `LOCAL_RUN`.
 
@@ -58,3 +58,7 @@ This trains for 100 steps and then evaluates **AIME24**, **AIME25**, and **HMMT2
 - vLLM
 - `math_verify`
 - `tqdm`
+
+## License
+
+MIT. See [LICENSE](LICENSE).
