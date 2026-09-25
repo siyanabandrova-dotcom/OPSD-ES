@@ -11,18 +11,18 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="${SRC:-$ROOT}"
-VENV="${VENV:-/tmp/hid5250/OPSD/.venv}"
-EVAL_VENV="${EVAL_VENV:-/home/hid5250/radicho/OPSD/.venv}"
-MODEL="${MODEL:-/scratch/hid5250/models/Qwen3-1.7B}"
+VENV="${VENV:-$ROOT/.venv}"
+EVAL_VENV="${EVAL_VENV:-$VENV}"
+MODEL="${MODEL:-Qwen/Qwen3-1.7B}"
 RUN_NAME="${RUN_NAME:-opsd-es-pairs512-$(date +%Y%m%d-%H%M%S)}"
-LOCAL_RUN="${LOCAL_RUN:-/scratch/hid5250/opsd_es/runs/${RUN_NAME}}"
-PERSIST_RUN="${PERSIST_RUN:-$ROOT/runs/${RUN_NAME}}"
+LOCAL_RUN="${LOCAL_RUN:-$ROOT/runs/${RUN_NAME}}"
+PERSIST_RUN="${PERSIST_RUN:-$LOCAL_RUN}"
 HOST="$(hostname -s)"
 
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
-export HF_HOME="${HF_HOME:-/scratch/hid5250/hf-cache}"
-export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-/scratch/hid5250/hf-cache/datasets}"
+export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
+export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$HF_HOME/datasets}"
 export NCCL_P2P_DISABLE=1
 export NCCL_IB_DISABLE=1
 export PYTHONUNBUFFERED=1
