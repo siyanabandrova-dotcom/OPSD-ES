@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Sequential AIME24 Avg@12 of the existing tmoff-2048 run:
-#   checkpoint-0020, 0040, 0060, 0080  (skips 0100)
+# Sequential AIME24 Avg@12 of an EggRoll baseline run:
+#   checkpoint-0020, 0040, 0060, 0080, 0100
 # Same eval protocol as the original pipeline / baseline (thinking ON, val_n=12).
 # Skips a step if its summary already exists. Retries a failed step up to 3 times.
 set -uo pipefail
 
-SRC="/home/hid5250/ES_knn_4c6e985_pr6/eggroll_aime_baseline/hemus-direct-eggroll-128-source-20260824"
-VENV="${VENV:-/tmp/hid5250/OPSD/.venv}"
-LOCAL_RUN="${LOCAL_RUN:-/scratch/hid5250/eggroll_aime_baseline/runs/eggroll-aime-tmoff-2048-pairs128-pop256-gn16-20260827-170250}"
-PERSIST_RUN="${PERSIST_RUN:-/home/hid5250/ES_knn_4c6e985_pr6/eggroll_aime_baseline/runs/eggroll-aime-tmoff-2048-pairs128-pop256-gn16-20260827-170250}"
-EVAL_STEPS="${EVAL_STEPS:-20 40 60 80}"
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV="${VENV:-/home/hid5250/radicho/OPSD/.venv}"
+LOCAL_RUN="${LOCAL_RUN:-/scratch/hid5250/eggroll_baseline/runs/eggroll-baseline-tmoff2048}"
+PERSIST_RUN="${PERSIST_RUN:-$SRC/runs/eggroll-baseline-tmoff2048}"
+EVAL_STEPS="${EVAL_STEPS:-20 40 60 80 100}"
 MAX_RETRIES="${MAX_RETRIES:-3}"
 NPROC="${NPROC:-8}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.75}"

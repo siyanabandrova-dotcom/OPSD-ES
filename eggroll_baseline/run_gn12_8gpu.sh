@@ -3,12 +3,13 @@
 # Each perturbation does a full boxed-correctness rollout on 32 OpenThoughts prompts.
 set -uo pipefail
 
-SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/hemus-direct-eggroll-128-source-20260824" && pwd)"
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="${VENV:-/tmp/hid5250/OPSD/.venv}"
+EVAL_VENV="${EVAL_VENV:-/home/hid5250/radicho/OPSD/.venv}"
 MODEL="${MODEL:-/scratch/hid5250/models/Qwen3-1.7B}"
-RUN_NAME="${RUN_NAME:-eggroll-aime-baseline-pairs128-pop256-n256-qwen3-1.7b-temp11-gn12-$(date +%Y%m%d-%H%M%S)}"
-LOCAL_RUN="${LOCAL_RUN:-/scratch/hid5250/eggroll_aime_baseline/runs/${RUN_NAME}}"
-PERSIST_RUN="${PERSIST_RUN:-/home/hid5250/ES_knn_4c6e985_pr6/eggroll_aime_baseline/runs/${RUN_NAME}}"
+RUN_NAME="${RUN_NAME:-eggroll-baseline-tmoff2048-$(date +%Y%m%d-%H%M%S)}"
+LOCAL_RUN="${LOCAL_RUN:-/scratch/hid5250/eggroll_baseline/runs/${RUN_NAME}}"
+PERSIST_RUN="${PERSIST_RUN:-$SRC/runs/${RUN_NAME}}"
 HOST="$(hostname -s)"
 
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
@@ -27,6 +28,7 @@ date -Is > "$PERSIST_RUN/pipeline-start.txt"
   echo "HOST=$HOST"
   echo "SRC=$SRC"
   echo "VENV=$VENV"
+  echo "EVAL_VENV=$EVAL_VENV"
   echo "MODEL=$MODEL"
   echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
   echo "LOCAL_RUN=$LOCAL_RUN"
@@ -34,7 +36,6 @@ date -Is > "$PERSIST_RUN/pipeline-start.txt"
 } > "$PERSIST_RUN/allocation.txt"
 cp -a "$SRC/eggroll_opsd_train_population_scaled.py" "$PERSIST_RUN/"
 cp -a "$SRC/eggroll_opsd_shared_rollout_population_scaled_train.py" "$PERSIST_RUN/"
-cp -a "$SRC/run_direct_population_scaled_production.sh" "$PERSIST_RUN/"
 cp -a "$0" "$PERSIST_RUN/run_gn12_8gpu.sh"
 
 echo "PIPELINE_START host=$HOST gpus=$CUDA_VISIBLE_DEVICES run=$RUN_NAME at=$(date -Is)"
@@ -70,19 +71,18 @@ if [[ $train_rc -ne 0 ]]; then
   exit "$train_rc"
 fi
 
-cd "$SRC/eval"
-"$VENV/bin/python" evaluate_math.py \
-  --base_model "$LOCAL_RUN/final-model" \
-  --dataset aime24 \
-  --val_n 12 \
-  --temperature 1.0 \
-  --top_p 0.95 \
-  --top_k -1 \
-  --max_new_tokens 38912 \
-  --tensor_parallel_size 8 \
-  --output_file "$PERSIST_RUN/aime24-avg12-results.json"
+LOCAL_RUN="$LOCAL_RUN" PERSIST_RUN="$PERSIST_RUN" VENV="$EVAL_VENV" \
+  bash "$SRC/eval_ckpts_20_40_60_80.sh"
+aime_rc=$?
+echo "AIME24_EVAL_EXIT rc=$aime_rc at=$(date -Is)"
+if [[ $aime_rc -ne 0 ]]; then
+  echo "PIPELINE_EXIT rc=$aime_rc at=$(date -Is)"
+  exit "$aime_rc"
+fi
+
+LOCAL_RUN="$LOCAL_RUN" PERSIST_RUN="$PERSIST_RUN" VENV="$EVAL_VENV" \
+  bash "$SRC/run_eval_aime25_hmmt25_ckpts.sh"
 eval_rc=$?
-echo "EVAL_EXIT rc=$eval_rc at=$(date -Is)"
-rsync -a "$LOCAL_RUN/" "$PERSIST_RUN/"
+echo "AIME25_HMMT25_EVAL_EXIT rc=$eval_rc at=$(date -Is)"
 echo "PIPELINE_EXIT rc=$eval_rc at=$(date -Is)"
 exit "$eval_rc"
