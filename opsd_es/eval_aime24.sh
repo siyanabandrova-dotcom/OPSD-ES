@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
-# Sequential AIME25 then HMMT25 Avg@12 of the opsd_better pairs512/pop1024 run:
+# AIME24 Avg@12 of an OPSD-ES pairs512 run.
+# Not part of the AIME25/HMMT25 pipeline. Run this separately.
 #   checkpoint-20, 40, 60, 80, then final-model as step 100
-# Same eval protocol as the tmoff AIME25/HMMT25 chain (evaluate_math.py, TP=8, thinking ON, val_n=12).
+# Same eval protocol (evaluate_math.py, TP=8, thinking ON, val_n=12, temp 1.0,
+# top_p 0.95, top_k -1, max_new_tokens 38912).
 # Skips a (dataset, step) if its summary already exists. Retries a failed step up to 3 times.
 set -uo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="${VENV:-/home/hid5250/radicho/OPSD/.venv}"
-LOCAL_RUN="${LOCAL_RUN:-/scratch/hid5250/opsd_better/runs/eggroll-opsd-direct-pairs512-pop1024-n1024-qwen3-1.7b-temp11-gn12-ckpt20-aime25hmmt25}"
-PERSIST_RUN="${PERSIST_RUN:-/home/hid5250/ES_knn_4c6e985_pr6/opsd_better/runs/eggroll-opsd-direct-pairs512-pop1024-n1024-qwen3-1.7b-temp11-gn12-ckpt20-aime25hmmt25}"
+LOCAL_RUN="${LOCAL_RUN:-/scratch/hid5250/opsd_es/runs/opsd-es-pairs512}"
+PERSIST_RUN="${PERSIST_RUN:-$SRC/runs/opsd-es-pairs512}"
 EVAL_STEPS="${EVAL_STEPS:-20 40 60 80 100}"
-DATASETS="${DATASETS:-aime25 hmmt25}"
+DATASETS="${DATASETS:-aime24}"
 MAX_RETRIES="${MAX_RETRIES:-3}"
 NPROC="${NPROC:-8}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.75}"
-SUMMARY_JSON="$PERSIST_RUN/aime25-hmmt25-ckpts-20-40-60-80-100-summary.json"
-TAG="${TAG:-opsd-better-pairs512-pop1024-clip005}"
+SUMMARY_JSON="$PERSIST_RUN/aime24-ckpts-20-40-60-80-100-summary.json"
+TAG="${TAG:-opsd-es-pairs512-aime24}"
 
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
@@ -113,7 +115,7 @@ for dataset in datasets:
             "enable_thinking": rec.get("enable_thinking"),
             "tensor_parallel_size": rec.get("tensor_parallel_size"),
         })
-payload = {"host": "gn12", "topology": "TP8", "evaluator": "evaluate_math.py", "run": "opsd-better-pairs512-pop1024-clip005", "checkpoints": rows}
+payload = {"host": "gn12", "topology": "TP8", "evaluator": "evaluate_math.py", "run": "opsd-es-pairs512", "checkpoints": rows}
 out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 print("EVAL_TABLE " + json.dumps(rows), flush=True)
 lines = [
@@ -141,7 +143,7 @@ for row in rows:
         )
     )
 table = "\n".join(lines) + "\n"
-(out.parent / "aime25-hmmt25-ckpts-20-40-60-80-100-table.md").write_text(table, encoding="utf-8")
+(out.parent / "aime24-ckpts-20-40-60-80-100-table.md").write_text(table, encoding="utf-8")
 print("EVAL_TABLE_MD\n" + table, flush=True)
 PY
 }

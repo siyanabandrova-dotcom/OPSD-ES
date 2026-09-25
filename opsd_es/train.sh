@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# opsd_better direct EGGROLL-OPSD on gn12 GPUs 0-7:
+# OPSD-ES direct EGGROLL on 8 GPUs:
 #   512 antithetic pairs (1024 members), token clip 0.05,
-#   population-wide score std (the opsd_better trainer),
+#   population-wide score std,
 #   checkpoint every 20 steps, then AIME25 and HMMT25 Avg@12
 #   on steps 20, 40, 60, 80 and final-model as step 100.
 # Eval matches the existing AIME25/HMMT25 tables:
@@ -14,9 +14,9 @@ SRC="${SRC:-$ROOT}"
 VENV="${VENV:-/tmp/hid5250/OPSD/.venv}"
 EVAL_VENV="${EVAL_VENV:-/home/hid5250/radicho/OPSD/.venv}"
 MODEL="${MODEL:-/scratch/hid5250/models/Qwen3-1.7B}"
-RUN_NAME="${RUN_NAME:-eggroll-opsd-direct-pairs512-pop1024-n1024-qwen3-1.7b-temp11-gn12-ckpt20-aime25hmmt25-$(date +%Y%m%d-%H%M%S)}"
-LOCAL_RUN="${LOCAL_RUN:-/scratch/hid5250/opsd_better/runs/${RUN_NAME}}"
-PERSIST_RUN="${PERSIST_RUN:-/home/hid5250/ES_knn_4c6e985_pr6/opsd_better/runs/${RUN_NAME}}"
+RUN_NAME="${RUN_NAME:-opsd-es-pairs512-$(date +%Y%m%d-%H%M%S)}"
+LOCAL_RUN="${LOCAL_RUN:-/scratch/hid5250/opsd_es/runs/${RUN_NAME}}"
+PERSIST_RUN="${PERSIST_RUN:-$ROOT/runs/${RUN_NAME}}"
 HOST="$(hostname -s)"
 
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
@@ -46,7 +46,7 @@ date -Is > "$PERSIST_RUN/pipeline-start.txt"
 } > "$PERSIST_RUN/allocation.txt"
 cp -a "$SRC/eggroll_opsd_train_population_scaled.py" "$PERSIST_RUN/"
 cp -a "$SRC/eggroll_opsd_shared_rollout_population_scaled_train.py" "$PERSIST_RUN/"
-cp -a "$0" "$PERSIST_RUN/run_gn12_pairs512_ckpt20_aime25_hmmt25.sh"
+cp -a "$0" "$PERSIST_RUN/train.sh"
 
 echo "PIPELINE_START host=$HOST gpus=$CUDA_VISIBLE_DEVICES run=$RUN_NAME at=$(date -Is)"
 
@@ -82,7 +82,7 @@ if [[ $train_rc -ne 0 ]]; then
 fi
 
 LOCAL_RUN="$LOCAL_RUN" PERSIST_RUN="$PERSIST_RUN" VENV="$EVAL_VENV" \
-  bash "$ROOT/run_eval_pairs512_aime25_hmmt25_ckpts.sh"
+  bash "$ROOT/eval_aime25_hmmt25.sh"
 eval_rc=$?
 echo "EVAL_CHAIN_DONE rc=$eval_rc at=$(date -Is)"
 rsync -a --exclude 'checkpoint-*' --exclude 'final-model' "$LOCAL_RUN/" "$PERSIST_RUN/" || true
