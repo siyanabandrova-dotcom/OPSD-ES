@@ -4,3 +4,8 @@ datasets
 vllm
 math_verify
 tqdm
+accelerate
+trl==0.26.0
+peft
+wandb
+safetensors

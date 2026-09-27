@@ -536,6 +536,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--skip-save", action="store_true")
     parser.add_argument("--checkpoint-every", type=int, default=20)
+    parser.add_argument(
+        "--start-step",
+        type=int,
+        default=0,
+        help="0-based step to resume from (must match --resume-from).",
+    )
+    parser.add_argument(
+        "--resume-from",
+        default=None,
+        help="HF checkpoint directory to load instead of --model.",
+    )
     return parser.parse_args()
 
 
@@ -573,17 +584,11 @@ def main() -> None:
         raise ValueError("tensorized-members-per-wave-per-gpu must be at least 2")
     if args.tensorized_members_per_wave_per_gpu % 2:
         raise ValueError("tensorized-members-per-wave-per-gpu must be even")
-    if local_population_members % args.tensorized_members_per_wave_per_gpu:
+    wave_members = args.tensorized_members_per_wave_per_gpu
+    if members_per_prompt % wave_members:
         raise ValueError(
-            "Local population members must divide evenly into tensorized waves; "
-            f"got local_members={local_population_members}, "
-            f"wave_members={args.tensorized_members_per_wave_per_gpu}"
-        )
-    if members_per_prompt != args.tensorized_members_per_wave_per_gpu:
-        raise ValueError(
-            "Tensorized generate packs one prompt's members per wave; "
-            f"got members_per_prompt={members_per_prompt}, "
-            f"wave_members={args.tensorized_members_per_wave_per_gpu}"
+            "tensorized-members-per-wave-per-gpu must divide members per prompt; "
+            f"got members_per_prompt={members_per_prompt}, wave_members={wave_members}"
         )
     local_prompt_count = args.prompt_groups // world_size
     if local_prompt_count % args.tensorized_prompt_microbatch_size:
@@ -594,10 +599,12 @@ def main() -> None:
         )
     if args.checkpoint_every < 0:
         raise ValueError("checkpoint-every must be >= 0 (0 disables)")
+    if args.start_step < 0 or args.start_step > args.steps:
+        raise ValueError("start-step must be in [0, steps]")
+    if args.start_step > 0 and not args.resume_from:
+        raise ValueError("start-step > 0 requires --resume-from")
     pairs_per_prompt = members_per_prompt // 2
-    generate_batch_size = (
-        members_per_prompt * args.tensorized_prompt_microbatch_size
-    )
+    generate_batch_size = wave_members * args.tensorized_prompt_microbatch_size
     population_estimator_scale = args.learning_rate / math.sqrt(population_members)
 
     torch.cuda.set_device(local_rank)
@@ -628,10 +635,10 @@ def main() -> None:
                     "population_estimator_scale": population_estimator_scale,
                     "fitness_prompt_reduction": "center_within_prompt_group",
                     "generate_batch_size": generate_batch_size,
-                    "population_waves_per_gpu": (
-                        local_prompt_count
-                        // args.tensorized_prompt_microbatch_size
-                    ),
+            "population_waves_per_gpu": (
+                (local_prompt_count // args.tensorized_prompt_microbatch_size)
+                * (members_per_prompt // wave_members)
+            ),
                     "teacher_cache": "none",
                 },
                 indent=2,
@@ -641,7 +648,8 @@ def main() -> None:
         )
     dist.barrier()
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
+    load_path = args.resume_from or args.model
+    tokenizer = AutoTokenizer.from_pretrained(load_path, trust_remote_code=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
     tokenizer.padding_side = "right"
@@ -652,7 +660,7 @@ def main() -> None:
         trust_remote_code=True,
         low_cpu_mem_usage=True,
     )
-    policy = AutoModelForCausalLM.from_pretrained(args.model, **model_kwargs).to(device)
+    policy = AutoModelForCausalLM.from_pretrained(load_path, **model_kwargs).to(device)
     policy.eval()
     policy.config.use_cache = True
     for parameter in policy.parameters():
@@ -669,10 +677,28 @@ def main() -> None:
 
     metrics_path = output_dir / "train-metrics.jsonl"
     run_start = time.time()
-    member_rollouts = 0
+    member_rollouts = args.start_step * population_members
     last_metrics: dict = {}
+    if local_rank == 0 and args.start_step > 0 and metrics_path.exists():
+        kept = []
+        for line in metrics_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            if int(record.get("step", 0)) <= args.start_step:
+                kept.append(line)
+                last_metrics = record
+        metrics_path.write_text(
+            ("\n".join(kept) + "\n") if kept else "",
+            encoding="utf-8",
+        )
+        print(
+            f"RESUME from={load_path} start_step={args.start_step} "
+            f"kept_metrics={len(kept)}",
+            flush=True,
+        )
 
-    for step in range(args.steps):
+    for step in range(args.start_step, args.steps):
         step_start = time.time()
         features = [
             dataset[order[(step * args.prompt_groups + group) % len(order)]]
@@ -701,86 +727,91 @@ def main() -> None:
         prompts_per_forward = args.tensorized_prompt_microbatch_size
         local_prompt_start = local_rank * local_prompt_count
 
+        chunk_pairs = wave_members // 2
         for prompt_offset in range(0, local_prompt_count, prompts_per_forward):
             wave_prompt_indices = [
                 local_prompt_start + prompt_offset + index
                 for index in range(prompts_per_forward)
             ]
-            wave_pair_ids = []
-            wave_sequences = []
-            for prompt_index in wave_prompt_indices:
-                pair_start = prompt_index * pairs_per_prompt
-                wave_pair_ids.extend(
-                    range(pair_start, pair_start + pairs_per_prompt)
-                )
-                # Prompt-major layout matches opsd_better: one prompt's members
-                # are contiguous, then the next prompt.
-                wave_sequences.extend(
-                    [student_prompt_ids[prompt_index]] * members_per_prompt
-                )
-            input_ids, attention_mask = pad_sequences(
-                wave_sequences,
-                pad_token_id=tokenizer.pad_token_id,
-                device=device,
-                padding_side="left",
-            )
-            generation_seed = (
-                args.seed + step * population_members + 2 * wave_pair_ids[0]
-            )
-            with tensorized_member_perturbations(
-                selected,
-                base_seed=args.seed,
-                step=step,
-                pair_ids=wave_pair_ids,
-                sigma=args.sigma,
-                rank=args.noise_rank,
-                prompts_per_forward=1,
-                device=device,
-            ):
-                completions = generate_student_from_ids(
-                    policy,
-                    tokenizer,
-                    input_ids,
-                    attention_mask,
-                    max_completion_length=args.max_completion_length,
-                    temperature=args.temperature,
-                    top_p=args.top_p,
-                    top_k=args.top_k,
-                    sample_seed=generation_seed,
-                )
-            if len(completions) != len(wave_sequences):
-                raise RuntimeError(
-                    "Tensorized generate produced the wrong batch size: "
-                    f"{len(completions)} vs {len(wave_sequences)}"
-                )
-            for row, completion in enumerate(completions):
-                prompt_slot = row // members_per_prompt
-                member_in_prompt = row % members_per_prompt
-                prompt_index = wave_prompt_indices[prompt_slot]
-                pair_id = wave_pair_ids[
-                    prompt_slot * pairs_per_prompt + member_in_prompt // 2
-                ]
-                local_pair = pair_id - local_pair_ids[0]
-                local_member = 2 * local_pair + (member_in_prompt % 2)
-                if not 0 <= local_member < local_member_count:
-                    raise RuntimeError(
-                        f"Wave row {row} mapped to local_member={local_member} "
-                        f"outside [0, {local_member_count})"
+            for member_begin in range(0, members_per_prompt, wave_members):
+                member_end = member_begin + wave_members
+                wave_pair_ids = []
+                wave_sequences = []
+                for prompt_index in wave_prompt_indices:
+                    for member in range(member_begin, member_end, 2):
+                        wave_pair_ids.append(
+                            prompt_index * pairs_per_prompt + member // 2
+                        )
+                    # Prompt-major layout: one prompt's wave members are contiguous.
+                    wave_sequences.extend(
+                        [student_prompt_ids[prompt_index]] * wave_members
                     )
-                reward, formatted = boxed_correctness_reward(
-                    tokenizer, completion, ground_truths[prompt_index]
+                input_ids, attention_mask = pad_sequences(
+                    wave_sequences,
+                    pad_token_id=tokenizer.pad_token_id,
+                    device=device,
+                    padding_side="left",
                 )
-                local_rewards[local_member] = reward
-                local_formatted[local_member] = formatted
-                local_lengths[local_member] = float(completion.numel())
-            rolled = prompt_offset + prompts_per_forward
-            print(
-                f"[rank{local_rank}] step={step + 1} "
-                f"rolled {rolled * members_per_prompt}/{local_member_count} "
-                f"batch={len(wave_sequences)} elapsed={time.time() - step_start:.0f}s",
-                flush=True,
-            )
-            del completions, input_ids, attention_mask, wave_sequences
+                generation_seed = (
+                    args.seed + step * population_members + 2 * wave_pair_ids[0]
+                )
+                with tensorized_member_perturbations(
+                    selected,
+                    base_seed=args.seed,
+                    step=step,
+                    pair_ids=wave_pair_ids,
+                    sigma=args.sigma,
+                    rank=args.noise_rank,
+                    prompts_per_forward=1,
+                    device=device,
+                ):
+                    completions = generate_student_from_ids(
+                        policy,
+                        tokenizer,
+                        input_ids,
+                        attention_mask,
+                        max_completion_length=args.max_completion_length,
+                        temperature=args.temperature,
+                        top_p=args.top_p,
+                        top_k=args.top_k,
+                        sample_seed=generation_seed,
+                    )
+                if len(completions) != len(wave_sequences):
+                    raise RuntimeError(
+                        "Tensorized generate produced the wrong batch size: "
+                        f"{len(completions)} vs {len(wave_sequences)}"
+                    )
+                for row, completion in enumerate(completions):
+                    prompt_slot = row // wave_members
+                    member_in_prompt = member_begin + (row % wave_members)
+                    prompt_index = wave_prompt_indices[prompt_slot]
+                    pair_id = wave_pair_ids[
+                        prompt_slot * chunk_pairs + (row % wave_members) // 2
+                    ]
+                    local_pair = pair_id - local_pair_ids[0]
+                    local_member = 2 * local_pair + (member_in_prompt % 2)
+                    if not 0 <= local_member < local_member_count:
+                        raise RuntimeError(
+                            f"Wave row {row} mapped to local_member={local_member} "
+                            f"outside [0, {local_member_count})"
+                        )
+                    reward, formatted = boxed_correctness_reward(
+                        tokenizer, completion, ground_truths[prompt_index]
+                    )
+                    local_rewards[local_member] = reward
+                    local_formatted[local_member] = formatted
+                    local_lengths[local_member] = float(completion.numel())
+                rolled = (
+                    prompt_offset * members_per_prompt
+                    + member_end * prompts_per_forward
+                )
+                print(
+                    f"[rank{local_rank}] step={step + 1} "
+                    f"rolled {rolled}/{local_member_count} "
+                    f"batch={len(wave_sequences)} elapsed={time.time() - step_start:.0f}s",
+                    flush=True,
+                )
+                del completions, input_ids, attention_mask, wave_sequences
 
         member_rollouts += population_members
         local_values = torch.stack(

@@ -17,6 +17,20 @@ The scripts look for `.venv` in the repository root. Point `VENV` at another env
 
 Override the model with `MODEL` (default `Qwen/Qwen3-1.7B`). Runs are written under that method's `runs/` directory. Override the output with `LOCAL_RUN`.
 
+Qwen3-4B uses a separate launcher for each method. Both reproduce the Avg@12 runs: thinking on, temperature 1.0, top-p 0.95, top-k off, 38912 new tokens, 12 samples.
+
+EggRoll stays the direct trainer, with one prompt per generate wave so a 4B member batch fits on 40GB. Resume with `RESUME_FROM=/path/to/checkpoint START_STEP=40`.
+
+OPSD is the Hugging Face `OPSDTrainer` plus EggRoll (`opsd_train.py`), population 256, no token clip. The frozen teacher stays on CPU except while its log-probs are cached, and each forward scores one member. Resume with `RESUME_FROM_CHECKPOINT=/path/to/checkpoint`. That run needs `trl==0.26.0`.
+
+```bash
+cd eggroll_baseline
+bash train_qwen3_4b.sh
+
+cd opsd_es
+bash train_qwen3_4b.sh
+```
+
 ## OPSD-ES
 
 Directory: `opsd_es/`.
@@ -58,6 +72,7 @@ This trains for 100 steps and then evaluates **AIME24**, **AIME25**, and **HMMT2
 - vLLM
 - `math_verify`
 - `tqdm`
+- `accelerate`, `trl==0.26.0`, `peft`, `wandb`, and `safetensors` for the Qwen3-4B OPSD launcher
 
 ## License
 
