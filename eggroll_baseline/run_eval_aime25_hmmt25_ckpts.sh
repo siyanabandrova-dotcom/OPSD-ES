@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sequential AIME25 then HMMT25 Avg@12 of the tmoff-2048 EGGROLL run:
-#   checkpoint-0020, 0040, 0060, 0080, 0100
+#   checkpoint-0025, 0050, 0075, 0100
 # Same eval protocol as the AIME24 table (evaluate_math.py, TP=8, thinking ON, val_n=12).
 # Only intended difference: --dataset aime25 / hmmt25 instead of aime24.
 # Skips a (dataset, step) if its summary already exists. Retries a failed step up to 3 times.
@@ -11,12 +11,12 @@ REPO="$(cd "$SRC/.." && pwd)"
 VENV="${VENV:-$REPO/.venv}"
 LOCAL_RUN="${LOCAL_RUN:-$SRC/runs/eggroll-baseline-tmoff2048}"
 PERSIST_RUN="${PERSIST_RUN:-$LOCAL_RUN}"
-EVAL_STEPS="${EVAL_STEPS:-20 40 60 80 100}"
+EVAL_STEPS="${EVAL_STEPS:-25 50 75 100}"
 DATASETS="${DATASETS:-aime25 hmmt25}"
 MAX_RETRIES="${MAX_RETRIES:-3}"
 NPROC="${NPROC:-8}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.75}"
-SUMMARY_JSON="$PERSIST_RUN/aime25-hmmt25-ckpts-20-40-60-80-100-summary.json"
+SUMMARY_JSON="$PERSIST_RUN/aime25-hmmt25-ckpts-25-50-75-100-summary.json"
 
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
@@ -140,7 +140,7 @@ for row in rows:
         )
     )
 table = "\n".join(lines) + "\n"
-(out.parent / "aime25-hmmt25-ckpts-20-40-60-80-100-table.md").write_text(table, encoding="utf-8")
+(out.parent / "aime25-hmmt25-ckpts-25-50-75-100-table.md").write_text(table, encoding="utf-8")
 print("EVAL_TABLE_MD\n" + table, flush=True)
 PY
 }

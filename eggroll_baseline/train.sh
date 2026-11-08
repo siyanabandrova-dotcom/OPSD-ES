@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Vanilla EGGROLL AIME baseline: 128 antithetic pairs (256 members) on 8 GPUs.
+# Vanilla EGGROLL AIME baseline: 512 antithetic pairs (1024 members) on 8 GPUs.
 # Each perturbation does a full boxed-correctness rollout on 32 OpenThoughts prompts.
 set -uo pipefail
 
@@ -46,7 +46,7 @@ cd "$SRC"
   --output-dir "$LOCAL_RUN" \
   --steps 100 \
   --prompt-groups 32 \
-  --pairs 128 \
+  --pairs 512 \
   --score-microbatch-size 4 \
   --tensorized-prompt-microbatch-size 4 \
   --tensorized-members-per-wave-per-gpu 8 \
@@ -61,7 +61,7 @@ cd "$SRC"
   --top-k 20 \
   --kl-temperature 1.1 \
   --token-clip 0.05 \
-  --checkpoint-every 20
+  --checkpoint-every 25
 train_rc=$?
 echo "TRAIN_EXIT rc=$train_rc at=$(date -Is)"
 rsync -a "$LOCAL_RUN/" "$PERSIST_RUN/"
@@ -71,6 +71,7 @@ if [[ $train_rc -ne 0 ]]; then
 fi
 
 LOCAL_RUN="$LOCAL_RUN" PERSIST_RUN="$PERSIST_RUN" VENV="$EVAL_VENV" \
+  EVAL_STEPS="25 50 75 100" \
   bash "$SRC/eval_ckpts_20_40_60_80.sh"
 aime_rc=$?
 echo "AIME24_EVAL_EXIT rc=$aime_rc at=$(date -Is)"
@@ -80,8 +81,15 @@ if [[ $aime_rc -ne 0 ]]; then
 fi
 
 LOCAL_RUN="$LOCAL_RUN" PERSIST_RUN="$PERSIST_RUN" VENV="$EVAL_VENV" \
+  EVAL_STEPS="25 50 75 100" DATASETS="aime25 hmmt25" \
   bash "$SRC/run_eval_aime25_hmmt25_ckpts.sh"
 eval_rc=$?
 echo "AIME25_HMMT25_EVAL_EXIT rc=$eval_rc at=$(date -Is)"
+if [[ $eval_rc -ne 0 ]]; then
+  echo "PIPELINE_EXIT rc=$eval_rc at=$(date -Is)"
+  exit "$eval_rc"
+fi
+"$EVAL_VENV/bin/python" "$REPO/report_best_avg12.py" "$PERSIST_RUN" aime24 aime25 hmmt25 -- 25 50 75 100
+eval_rc=$?
 echo "PIPELINE_EXIT rc=$eval_rc at=$(date -Is)"
 exit "$eval_rc"

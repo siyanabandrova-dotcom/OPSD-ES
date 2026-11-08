@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Sequential AIME25 then HMMT25 Avg@12 of an OPSD-ES pairs512 run:
-#   checkpoint-20, 40, 60, 80, then final-model as step 100
+# Avg@12 of an OPSD-ES pairs512 run on AIME24, AIME25 and HMMT25:
+#   checkpoint-25, 50, 75, then final-model as step 100
 # Same eval protocol as the tmoff AIME25/HMMT25 chain (evaluate_math.py, TP=8, thinking ON, val_n=12).
 # Skips a (dataset, step) if its summary already exists. Retries a failed step up to 3 times.
 set -uo pipefail
@@ -10,12 +10,12 @@ REPO="$(cd "$SRC/.." && pwd)"
 VENV="${VENV:-$REPO/.venv}"
 LOCAL_RUN="${LOCAL_RUN:-$SRC/runs/opsd-es-pairs512}"
 PERSIST_RUN="${PERSIST_RUN:-$LOCAL_RUN}"
-EVAL_STEPS="${EVAL_STEPS:-20 40 60 80 100}"
-DATASETS="${DATASETS:-aime25 hmmt25}"
+EVAL_STEPS="${EVAL_STEPS:-25 50 75 100}"
+DATASETS="${DATASETS:-aime24 aime25 hmmt25}"
 MAX_RETRIES="${MAX_RETRIES:-3}"
 NPROC="${NPROC:-8}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.75}"
-SUMMARY_JSON="$PERSIST_RUN/aime25-hmmt25-ckpts-20-40-60-80-100-summary.json"
+SUMMARY_JSON="$PERSIST_RUN/avg12-ckpts-25-50-75-100-summary.json"
 TAG="${TAG:-opsd-es-pairs512}"
 
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
@@ -140,7 +140,7 @@ for row in rows:
         )
     )
 table = "\n".join(lines) + "\n"
-(out.parent / "aime25-hmmt25-ckpts-20-40-60-80-100-table.md").write_text(table, encoding="utf-8")
+(out.parent / "avg12-ckpts-25-50-75-100-table.md").write_text(table, encoding="utf-8")
 print("EVAL_TABLE_MD\n" + table, flush=True)
 PY
 }

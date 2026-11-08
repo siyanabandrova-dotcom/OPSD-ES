@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # AIME24 Avg@12 of an OPSD-ES pairs512 run.
 # Not part of the AIME25/HMMT25 pipeline. Run this separately.
-#   checkpoint-20, 40, 60, 80, then final-model as step 100
+#   checkpoint-25, 50, 75, then final-model as step 100
 # Same eval protocol (evaluate_math.py, TP=8, thinking ON, val_n=12, temp 1.0,
 # top_p 0.95, top_k -1, max_new_tokens 38912).
 # Skips a (dataset, step) if its summary already exists. Retries a failed step up to 3 times.
@@ -12,12 +12,12 @@ REPO="$(cd "$SRC/.." && pwd)"
 VENV="${VENV:-$REPO/.venv}"
 LOCAL_RUN="${LOCAL_RUN:-$SRC/runs/opsd-es-pairs512}"
 PERSIST_RUN="${PERSIST_RUN:-$LOCAL_RUN}"
-EVAL_STEPS="${EVAL_STEPS:-20 40 60 80 100}"
+EVAL_STEPS="${EVAL_STEPS:-25 50 75 100}"
 DATASETS="${DATASETS:-aime24}"
 MAX_RETRIES="${MAX_RETRIES:-3}"
 NPROC="${NPROC:-8}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.75}"
-SUMMARY_JSON="$PERSIST_RUN/aime24-ckpts-20-40-60-80-100-summary.json"
+SUMMARY_JSON="$PERSIST_RUN/aime24-ckpts-25-50-75-100-summary.json"
 TAG="${TAG:-opsd-es-pairs512-aime24}"
 
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
@@ -142,7 +142,7 @@ for row in rows:
         )
     )
 table = "\n".join(lines) + "\n"
-(out.parent / "aime24-ckpts-20-40-60-80-100-table.md").write_text(table, encoding="utf-8")
+(out.parent / "aime24-ckpts-25-50-75-100-table.md").write_text(table, encoding="utf-8")
 print("EVAL_TABLE_MD\n" + table, flush=True)
 PY
 }

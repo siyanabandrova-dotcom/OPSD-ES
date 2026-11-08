@@ -553,6 +553,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     local_rank = int(__import__("os").environ.get("LOCAL_RANK", "0"))
+    rank = int(__import__("os").environ.get("RANK", str(local_rank)))
     world_size = int(__import__("os").environ.get("WORLD_SIZE", "1"))
     if args.pairs % world_size:
         raise ValueError(
@@ -616,7 +617,7 @@ def main() -> None:
     )
 
     output_dir = Path(args.output_dir)
-    if local_rank == 0:
+    if rank == 0:
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "config.json").write_text(
             json.dumps(
@@ -679,7 +680,7 @@ def main() -> None:
     run_start = time.time()
     member_rollouts = args.start_step * population_members
     last_metrics: dict = {}
-    if local_rank == 0 and args.start_step > 0 and metrics_path.exists():
+    if rank == 0 and args.start_step > 0 and metrics_path.exists():
         kept = []
         for line in metrics_path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
@@ -717,7 +718,7 @@ def main() -> None:
 
         pairs_per_gpu = args.pairs // world_size
         local_pair_ids = [
-            local_rank * pairs_per_gpu + offset
+            rank * pairs_per_gpu + offset
             for offset in range(pairs_per_gpu)
         ]
         local_member_count = 2 * pairs_per_gpu
@@ -725,7 +726,7 @@ def main() -> None:
         local_formatted = torch.zeros_like(local_rewards)
         local_lengths = torch.zeros_like(local_rewards)
         prompts_per_forward = args.tensorized_prompt_microbatch_size
-        local_prompt_start = local_rank * local_prompt_count
+        local_prompt_start = rank * local_prompt_count
 
         chunk_pairs = wave_members // 2
         for prompt_offset in range(0, local_prompt_count, prompts_per_forward):
@@ -806,7 +807,7 @@ def main() -> None:
                     + member_end * prompts_per_forward
                 )
                 print(
-                    f"[rank{local_rank}] step={step + 1} "
+                    f"[rank{rank}] step={step + 1} "
                     f"rolled {rolled}/{local_member_count} "
                     f"batch={len(wave_sequences)} elapsed={time.time() - step_start:.0f}s",
                     flush=True,
@@ -880,7 +881,7 @@ def main() -> None:
             "step_seconds": step_seconds,
             "elapsed_seconds": time.time() - run_start,
         }
-        if local_rank == 0:
+        if rank == 0:
             append_jsonl(metrics_path, last_metrics)
             print(
                 "EGGROLL_AIME_METRICS "
@@ -911,7 +912,7 @@ def main() -> None:
             and (step + 1) % args.checkpoint_every == 0
         ):
             dist.barrier()
-            if local_rank == 0:
+            if rank == 0:
                 ckpt_dir = output_dir / f"checkpoint-{step + 1:04d}"
                 selected = save_center_checkpoint(
                     policy, selected, tokenizer, ckpt_dir
@@ -935,7 +936,7 @@ def main() -> None:
             dist.barrier()
 
     dist.barrier()
-    if local_rank == 0:
+    if rank == 0:
         if not args.skip_save:
             unwrap_target_linears(policy, selected)
             final_dir = output_dir / "final-model"

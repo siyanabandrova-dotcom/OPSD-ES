@@ -2,8 +2,8 @@
 # OPSD-ES direct EGGROLL on 8 GPUs:
 #   512 antithetic pairs (1024 members), token clip 0.05,
 #   population-wide score std,
-#   checkpoint every 20 steps, then AIME25 and HMMT25 Avg@12
-#   on steps 20, 40, 60, 80 and final-model as step 100.
+#   checkpoint every 25 steps, then AIME24, AIME25 and HMMT25 Avg@12
+#   on steps 25, 50, 75 and final-model as step 100.
 # Eval matches the existing AIME25/HMMT25 tables:
 #   evaluate_math.py, thinking on, val_n=12, temp 1.0, top_p 0.95,
 #   top_k -1, max_new_tokens 38912, TP=8, gpu_memory_utilization 0.75.
@@ -41,7 +41,7 @@ date -Is > "$PERSIST_RUN/pipeline-start.txt"
   echo "PAIRS=512"
   echo "TOKEN_CLIP=0.05"
   echo "SCORE_STD=population_wide"
-  echo "CHECKPOINT_EVERY=20"
+  echo "CHECKPOINT_EVERY=25"
 } > "$PERSIST_RUN/allocation.txt"
 cp -a "$SRC/eggroll_opsd_train_population_scaled.py" "$PERSIST_RUN/"
 cp -a "$SRC/eggroll_opsd_shared_rollout_population_scaled_train.py" "$PERSIST_RUN/"
@@ -71,7 +71,7 @@ cd "$SRC"
   --top-k 20 \
   --kl-temperature 1.1 \
   --token-clip 0.05 \
-  --checkpoint-every 20
+  --checkpoint-every 25
 train_rc=$?
 echo "TRAIN_EXIT rc=$train_rc at=$(date -Is)"
 rsync -a --exclude 'checkpoint-*' --exclude 'final-model' "$LOCAL_RUN/" "$PERSIST_RUN/" || true
@@ -81,9 +81,16 @@ if [[ $train_rc -ne 0 ]]; then
 fi
 
 LOCAL_RUN="$LOCAL_RUN" PERSIST_RUN="$PERSIST_RUN" VENV="$EVAL_VENV" \
+  EVAL_STEPS="25 50 75 100" DATASETS="aime24 aime25 hmmt25" \
   bash "$ROOT/eval_aime25_hmmt25.sh"
 eval_rc=$?
 echo "EVAL_CHAIN_DONE rc=$eval_rc at=$(date -Is)"
 rsync -a --exclude 'checkpoint-*' --exclude 'final-model' "$LOCAL_RUN/" "$PERSIST_RUN/" || true
+if [[ $eval_rc -ne 0 ]]; then
+  echo "PIPELINE_EXIT rc=$eval_rc at=$(date -Is)"
+  exit "$eval_rc"
+fi
+"$EVAL_VENV/bin/python" "$REPO/report_best_avg12.py" "$PERSIST_RUN" aime24 aime25 hmmt25 -- 25 50 75 100
+eval_rc=$?
 echo "PIPELINE_EXIT rc=$eval_rc at=$(date -Is)"
 exit "$eval_rc"

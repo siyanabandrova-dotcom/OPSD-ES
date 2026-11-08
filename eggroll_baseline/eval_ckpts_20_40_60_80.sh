@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sequential AIME24 Avg@12 of an EggRoll baseline run:
-#   checkpoint-0020, 0040, 0060, 0080, 0100
+#   checkpoint-0025, 0050, 0075, 0100
 # Same eval protocol as the original pipeline / baseline (thinking ON, val_n=12).
 # Skips a step if its summary already exists. Retries a failed step up to 3 times.
 set -uo pipefail
@@ -10,7 +10,7 @@ REPO="$(cd "$SRC/.." && pwd)"
 VENV="${VENV:-$REPO/.venv}"
 LOCAL_RUN="${LOCAL_RUN:-$SRC/runs/eggroll-baseline-tmoff2048}"
 PERSIST_RUN="${PERSIST_RUN:-$LOCAL_RUN}"
-EVAL_STEPS="${EVAL_STEPS:-20 40 60 80 100}"
+EVAL_STEPS="${EVAL_STEPS:-25 50 75 100}"
 MAX_RETRIES="${MAX_RETRIES:-3}"
 NPROC="${NPROC:-8}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.75}"
@@ -76,7 +76,7 @@ PY
 }
 
 write_table() {
-  "$VENV/bin/python" - <<'PY' "$PERSIST_RUN/eval-ckpts-20-40-60-80-summary.json" $EVAL_STEPS
+  "$VENV/bin/python" - <<'PY' "$PERSIST_RUN/eval-ckpts-25-50-75-100-summary.json" $EVAL_STEPS
 import json, sys
 from pathlib import Path
 out = Path(sys.argv[1])

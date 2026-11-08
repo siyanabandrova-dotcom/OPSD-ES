@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Qwen3-4B OPSD EggRoll on 40GB GPUs.
-# Same entry point as the run that produced the Qwen3-4B Avg@12 tables:
+# Qwen3-4B OPSD EggRoll on 16 GPUs (2 machines x 8).
 # Hugging Face OPSDTrainer + EggRoll (opsd_train.py), not the direct
 # shared-rollout trainer used for Qwen3-1.7B.
-# Population 256 = 128 antithetic pairs, 32 shared prompts, noclip.
+# Population 1024, 32 shared prompts, token clip 0.05, batch 2 per GPU.
 # The frozen teacher stays on CPU except while its log-probs are cached,
 # and each forward scores one member.
+# Start the same OUT on every node. Rank 0 evaluates.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,13 +14,16 @@ VENV="${VENV:-$REPO/.venv}"
 EVAL_VENV="${EVAL_VENV:-$VENV}"
 MODEL="${MODEL:-Qwen/Qwen3-4B}"
 OUT="${OUT:-$ROOT/outputs}"
-RUN_CONFIG="${RUN_CONFIG:-qwen34b_eggroll_noclip_pop256}"
+RUN_CONFIG="${RUN_CONFIG:-qwen34b_eggroll_clip_pop1024}"
+NNODES="${NNODES:-2}"
 NPROC="${NPROC:-8}"
-PER_DEVICE_BATCH="${PER_DEVICE_BATCH:-4}"
+NODE_RANK="${NODE_RANK:-0}"
+MASTER_ADDR="${MASTER_ADDR:-}"
+PER_DEVICE_BATCH="${PER_DEVICE_BATCH:-2}"
 PORT="${MAIN_PROCESS_PORT:-12954}"
-SAVE_STEPS="${SAVE_STEPS:-20}"
+SAVE_STEPS="${SAVE_STEPS:-25}"
 ES_WAVE_SIZE="${ES_WAVE_SIZE:-4}"
-EVAL_STEPS="${EVAL_STEPS:-20 40 60 80 100}"
+EVAL_STEPS="${EVAL_STEPS:-25 50 75 100}"
 DATASETS="${DATASETS:-aime24 aime25 hmmt25}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.75}"
 MAX_RETRIES="${MAX_RETRIES:-3}"
@@ -35,7 +38,7 @@ export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export VLLM_WORKER_MULTIPROC_METHOD="${VLLM_WORKER_MULTIPROC_METHOD:-spawn}"
 # FP32 masters stay on CPU, and the teacher is off the GPU during member scoring,
-# so a prompt batch of 4 fits. Members stay one-per-forward (a stacked wave does not).
+# so the table run uses a prompt batch of 2. Members stay one-per-forward.
 export ES_TEACHER_MICROBATCH="${ES_TEACHER_MICROBATCH:-4}"
 export ES_PROMPT_MICROBATCH="${ES_PROMPT_MICROBATCH:-4}"
 
@@ -62,9 +65,12 @@ date -Is > "$EXP/pipeline-start.txt"
   echo "OUT=$OUT"
   echo "RUN_CONFIG=$RUN_CONFIG"
   echo "EXP=$EXP"
-  echo "ES_POPULATION=256"
+  echo "NNODES=$NNODES"
+  echo "NODE_RANK=$NODE_RANK"
+  echo "MASTER_ADDR=$MASTER_ADDR"
+  echo "ES_POPULATION=1024"
   echo "ES_PROMPTS_PER_STEP=32"
-  echo "JSD_TOKEN_CLIP=0"
+  echo "JSD_TOKEN_CLIP=0.05"
   echo "ES_TEACHER_MICROBATCH=$ES_TEACHER_MICROBATCH"
   echo "ES_PROMPT_MICROBATCH=$ES_PROMPT_MICROBATCH"
   echo "ES_WAVE_SIZE=$ES_WAVE_SIZE"
@@ -88,12 +94,23 @@ if [[ -n "$RESUME" ]]; then
   echo "RESUME_FROM_CHECKPOINT=$RESUME"
 fi
 
-echo "PIPELINE_START host=$HOST gpus=$CUDA_VISIBLE_DEVICES run=$RUN_CONFIG at=$(date -Is)"
+if [[ "$NNODES" -gt 1 && -z "$MASTER_ADDR" ]]; then
+  echo "Multi-node needs MASTER_ADDR and the same OUT on every node. Set NODE_RANK=0 on the first node and 1 on the second." >&2
+  exit 1
+fi
+if [[ "$NNODES" -eq 1 && -z "$MASTER_ADDR" ]]; then
+  MASTER_ADDR="127.0.0.1"
+fi
+
+echo "PIPELINE_START host=$HOST gpus=$CUDA_VISIBLE_DEVICES run=$RUN_CONFIG nodes=$NNODES rank=$NODE_RANK at=$(date -Is)"
 
 cd "$ROOT"
 "$ACCELERATE_BIN" launch \
     --config_file accelerate_es.yaml \
-    --num_processes "$NPROC" \
+    --num_machines "$NNODES" \
+    --num_processes "$((NNODES * NPROC))" \
+    --machine_rank "$NODE_RANK" \
+    --main_process_ip "$MASTER_ADDR" \
     --main_process_port "$PORT" \
     opsd_train.py \
     --model_name_or_path "$MODEL" \
@@ -115,9 +132,9 @@ cd "$ROOT"
     --top_p 1.0 \
     --top_k 0 \
     --lmbda 1 \
-    --jsd_token_clip 0 \
+    --jsd_token_clip 0.05 \
     --use_es \
-    --es_population 256 \
+    --es_population 1024 \
     --es_prompts_per_step 32 \
     --es_wave_size "$ES_WAVE_SIZE" \
     --es_sigma 1e-3 \
@@ -127,6 +144,10 @@ cd "$ROOT"
     "${RESUME_ARGS[@]}"
 train_rc=$?
 echo "TRAIN_EXIT rc=$train_rc at=$(date -Is)"
+if [[ "$NODE_RANK" != "0" ]]; then
+  echo "PIPELINE_EXIT rc=$train_rc rank=$NODE_RANK at=$(date -Is)"
+  exit "$train_rc"
+fi
 if [[ $train_rc -ne 0 ]]; then
   echo "PIPELINE_EXIT rc=$train_rc at=$(date -Is)"
   exit "$train_rc"
@@ -200,5 +221,7 @@ for step in $EVAL_STEPS; do
   done
 done
 
-echo "PIPELINE_EXIT rc=0 at=$(date -Is)"
-exit 0
+"$EVAL_VENV/bin/python" "$REPO/report_best_avg12.py" "$EXP" aime24 aime25 hmmt25 -- $EVAL_STEPS
+eval_rc=$?
+echo "PIPELINE_EXIT rc=$eval_rc at=$(date -Is)"
+exit "$eval_rc"
